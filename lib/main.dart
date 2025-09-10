@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const AuraWatchApp());
@@ -19,46 +21,62 @@ class AuraWatchApp extends StatelessWidget {
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String solPrice = "Loading...";
+  String _solPrice = 'Loading...';
+  bool _loading = false;
 
-  Future<void> fetchSolPrice() async {
+  Future<void> _fetchSolPrice() async {
+    setState(() => _loading = true);
     try {
       final uri = Uri.parse(
-        "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd",
+        'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd',
       );
-      final response = await Uri.base.resolveUri(uri).toFilePath(); // temp placeholder
+      final res = await http.get(uri);
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final price = data['solana']?['usd'];
+        setState(() => _solPrice = price != null ? '\$${price.toString()}' : 'N/A');
+      } else {
+        setState(() => _solPrice = 'Error ${res.statusCode}');
+      }
     } catch (e) {
-      setState(() => solPrice = "Error");
+      setState(() => _solPrice = 'Error');
+    } finally {
+      setState(() => _loading = false);
     }
   }
 
   @override
   void initState() {
     super.initState();
-    fetchSolPrice();
+    _fetchSolPrice();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Aura Watch")),
+      appBar: AppBar(title: const Text('Aura Watch')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text("SOL Price:", style: Theme.of(context).textTheme.titleLarge),
+            const Text('SOL Price', style: TextStyle(fontSize: 18)),
             const SizedBox(height: 8),
-            Text(solPrice, style: Theme.of(context).textTheme.headlineMedium),
+            Text(_solPrice, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loading ? null : _fetchSolPrice,
+              child: Text(_loading ? 'Refreshing...' : 'Refresh'),
+            ),
           ],
         ),
       ),
     );
   }
 }
+
 
