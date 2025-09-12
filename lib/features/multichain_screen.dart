@@ -41,10 +41,14 @@ class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerPr
     return Scaffold(
       appBar: AppBar(
         title: const Text('Multi-Chain Watch'),
-        bottom: const TabBar(tabs: [
-          Tab(text: 'Ethereum'),
-          Tab(text: 'Bitcoin'),
-        ], isScrollable: false),
+        bottom: TabBar(
+          controller: _tab,
+          tabs: const [
+            Tab(text: 'Ethereum'),
+            Tab(text: 'Bitcoin'),
+          ],
+          isScrollable: false,
+        ),
         actions: [
           IconButton(onPressed: _loading ? null : _refresh, icon: const Icon(Icons.refresh)),
         ],
