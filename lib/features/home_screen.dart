@@ -93,6 +93,11 @@ class _HomeScreenState extends State<HomeScreen> {
               title: Text('${w.chain.toUpperCase()} • ${w.shortHash}'),
               subtitle: Text(w.desc),
             )),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: () => Navigator.pushNamed(context, '/multi'),
+            child: const Text('Open Multi‑Chain Watch'),
+          ),
         ],
       ),
     );
