@@ -12,9 +12,10 @@ class SolanaService {
     final res = await http.get(uri);
     if (res.statusCode != 200) throw Exception('SOL price error ${res.statusCode}');
     final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final usd = data['solana']?['usd'];
+    final usd = (data['solana']?['usd'] as num?)?.toDouble();
     if (usd == null) throw Exception('Invalid SOL price payload');
-    return '\$${usd.toString()}';
+    final formatted = NumberFormat('###,##0.00').format(usd);
+    return '\$$formatted';
   }
 
   /// CoinGecko – Trending tokens (Solana category)
