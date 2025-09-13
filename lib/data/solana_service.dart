@@ -48,8 +48,30 @@ class SolanaService {
       final amountLamports = (tx['amount'] as num?)?.toDouble();
       final sol = amountLamports != null ? (amountLamports / 1e9) : null;
       final desc = sol != null ? 'Amount: ${sol.toStringAsFixed(4)} SOL' : 'Large transfer';
-      final ts = DateTime.now(); // API doesn’t always return timestamp; use now as placeholder
+      // Prefer timestamp from API (e.g., "blockTime") but fall back to now when absent
+      final ts = _parseTimestamp(tx['blockTime']) ??
+          _parseTimestamp(tx['timestamp']) ??
+          _parseTimestamp(tx['time']) ??
+          DateTime.now();
       return WhaleTx(shortHash: shortHash, chain: 'solana', desc: desc, ts: ts);
     }).toList();
+  }
+
+  /// Attempt to parse a Solscan timestamp field.
+  ///
+  /// Fields may be integers (UNIX seconds) or strings. Returns `null` if the
+  /// value cannot be parsed.
+  static DateTime? _parseTimestamp(dynamic value) {
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value * 1000, isUtc: true);
+    }
+    if (value is String) {
+      final asInt = int.tryParse(value);
+      if (asInt != null) {
+        return DateTime.fromMillisecondsSinceEpoch(asInt * 1000, isUtc: true);
+      }
+      return DateTime.tryParse(value);
+    }
+    return null;
   }
 }
