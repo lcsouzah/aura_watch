@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 import 'models.dart';
 
 class SolanaService {
-  static final _num = NumberFormat.decimalPattern(); // for volume formatting
 
   /// CoinGecko – SOL price (USD)
   static Future<String> fetchSolPrice() async {

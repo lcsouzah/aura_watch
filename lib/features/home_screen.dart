@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/solana_service.dart';
 import '../data/models.dart';
+import 'package:intl/intl.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -9,6 +10,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static final _num = NumberFormat.decimalPattern();
   String _solPrice = 'Loading…';
   List<TokenMarket> _trending = const [];
   List<WhaleTx> _whales = const [];
@@ -79,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: Text(t.name),
-              subtitle: Text('Vol 24h: ${t.volume24h.toStringAsFixed(0)}'),
+              subtitle: Text('Vol 24h: ${_num.format(t.volume24h)}'),
               trailing: Text('\$${t.price.toStringAsFixed(4)}'),
             )),
 
