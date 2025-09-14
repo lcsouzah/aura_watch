@@ -23,13 +23,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _error = null;
     });
     try {
-      final price = await SolanaService.fetchSolPrice();
-      final trending = await SolanaService.fetchTrendingTokens(limit: 5);
-      final whales = await SolanaService.fetchWhaleActivity(limit: 5);
+      final results = await Future.wait([
+        SolanaService.fetchSolPrice(),
+        SolanaService.fetchTrendingTokens(limit: 5),
+        SolanaService.fetchWhaleActivity(limit: 5),
+      ]);
       setState(() {
-        _solPrice = price;
-        _trending = trending;
-        _whales = whales;
+        _solPrice = results[0] as String;
+        _trending = results[1] as List<TokenMarket>;
+        _whales = results[2] as List<WhaleTx>;
       });
     } catch (e) {
       setState(() => _error = e.toString());
