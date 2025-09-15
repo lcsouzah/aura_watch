@@ -11,6 +11,13 @@ class WhaleTx {
   final String chain;
   final String desc;    // human text e.g. "Amount: 1,234.5678 SOL"
   final DateTime ts;
+  final double? amount; // numeric amount in native units (e.g., ETH, BTC, SOL)
 
-  WhaleTx({required this.shortHash, required this.chain, required this.desc, required this.ts});
+  WhaleTx({
+    required this.shortHash,
+    required this.chain,
+    required this.desc,
+    required this.ts,
+    this.amount,
+  });
 }

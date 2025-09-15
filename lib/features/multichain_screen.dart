@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/chain_watchers.dart';
+import '../data/models.dart';
 
 class MultiChainScreen extends StatefulWidget {
   const MultiChainScreen({super.key});
@@ -14,6 +15,8 @@ class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerPr
 
   String _ethPrice = '…';
   String _btcPrice = '…';
+  List<WhaleTx> _ethWhales = const [];
+  List<WhaleTx> _btcWhales = const [];
   bool _loading = false;
   String? _error;
 
@@ -23,13 +26,17 @@ class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerPr
       _error = null;
     });
     try {
-      final p = await Future.wait([
+      final r = await Future.wait([
         _eth.fetchPriceUsd(),
+        _eth.fetchWhales(limit: 5),
         _btc.fetchPriceUsd(),
+        _btc.fetchWhales(limit: 5),
       ]);
       setState(() {
-        _ethPrice = p[0];
-        _btcPrice = p[1];
+        _ethPrice = r[0] as String;
+        _ethWhales = r[1] as List<WhaleTx>;
+        _btcPrice = r[2] as String;
+        _btcWhales = r[3] as List<WhaleTx>;
       });
     } catch (e) {
       setState(() => _error = e.toString());
@@ -84,16 +91,37 @@ class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerPr
               )),
         ]
             : [
-          Center(
-              child: Text('ETH: $_ethPrice',
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.bold))),
-          Center(
-              child: Text('BTC: $_btcPrice',
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.bold))),
+          _buildTab(_ethPrice, _ethWhales),
+          _buildTab(_btcPrice, _btcWhales),
         ],
       ),
+    );
+  }
+
+  Widget _buildTab(String price, List<WhaleTx> whales) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text('Price',
+            style: TextStyle(fontSize: 14, color: Colors.grey)),
+        const SizedBox(height: 6),
+        Text(price,
+            style:
+            const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 16),
+        const Text('Whale Activity',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        if (whales.isEmpty)
+          const Text('No data yet.')
+        else
+          ...whales.map((w) => ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(w.shortHash),
+            subtitle: Text(w.desc),
+          )),
+      ],
     );
   }
 }

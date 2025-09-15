@@ -47,13 +47,20 @@ class SolanaService {
       // When provided: amount = lamports; format to SOL
       final amountLamports = (tx['amount'] as num?)?.toDouble();
       final sol = amountLamports != null ? (amountLamports / 1e9) : null;
-      final desc = sol != null ? 'Amount: ${sol.toStringAsFixed(4)} SOL' : 'Large transfer';
+      final desc =
+      sol != null ? 'Amount: ${sol.toStringAsFixed(4)} SOL' : 'Large transfer';
       // Prefer timestamp from API (e.g., "blockTime") but fall back to now when absent
       final ts = _parseTimestamp(tx['blockTime']) ??
           _parseTimestamp(tx['timestamp']) ??
           _parseTimestamp(tx['time']) ??
           DateTime.now();
-      return WhaleTx(shortHash: shortHash, chain: 'solana', desc: desc, ts: ts);
+      return WhaleTx(
+        shortHash: shortHash,
+        chain: 'solana',
+        desc: desc,
+        ts: ts,
+        amount: sol,
+      );
     }).toList();
   }
 
