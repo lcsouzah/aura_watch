@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../data/chain_watchers.dart';
 import '../data/models.dart';
@@ -9,6 +11,7 @@ class MultiChainScreen extends StatefulWidget {
 }
 
 class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerProviderStateMixin {
+  static const _refreshInterval = Duration(seconds: 60);
   late final TabController _tab;
   final _eth = EthereumWatcher();
   final _btc = BitcoinWatcher();
@@ -19,6 +22,7 @@ class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerPr
   List<WhaleTx> _btcWhales = const [];
   bool _loading = false;
   String? _error;
+  Timer? _refreshTimer;
 
   Future<void> _refresh() async {
     setState(() {
@@ -54,6 +58,18 @@ class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerPr
     super.initState();
     _tab = TabController(length: 2, vsync: this);
     _refresh();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (!_loading) {
+        _refresh();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _tab.dispose();
+    super.dispose();
   }
 
   @override

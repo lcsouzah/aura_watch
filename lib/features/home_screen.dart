@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../data/solana_service.dart';
 import '../data/models.dart';
@@ -10,12 +12,14 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const _refreshInterval = Duration(seconds: 60) ;
   static final _num = NumberFormat.decimalPattern();
   String _solPrice = 'Loading…';
   List<TokenMarket> _trending = const [];
   List<WhaleTx> _whales = const [];
   bool _loading = false;
   String? _error;
+  Timer? _refreshTimer;
 
   Future<void> _refreshAll() async {
     setState(() {
@@ -44,6 +48,17 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _refreshAll();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (!_loading) {
+        _refreshAll();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Widget _sectionTitle(String text) => Padding(
