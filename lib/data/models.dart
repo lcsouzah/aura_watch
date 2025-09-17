@@ -21,3 +21,49 @@ class WhaleTx {
     this.amount,
   });
 }
+
+class WatchedToken {
+  final String id; // CoinGecko token id
+  final String label;
+  final double thresholdUsd;
+  final bool alertAbove;
+
+  const WatchedToken({
+    required this.id,
+    required this.label,
+    required this.thresholdUsd,
+    required this.alertAbove,
+  });
+
+  WatchedToken copyWith({
+    String? id,
+    String? label,
+    double? thresholdUsd,
+    bool? alertAbove,
+  }) {
+    return WatchedToken(
+      id: id ?? this.id,
+      label: label ?? this.label,
+      thresholdUsd: thresholdUsd ?? this.thresholdUsd,
+      alertAbove: alertAbove ?? this.alertAbove,
+    );
+  }
+
+  factory WatchedToken.fromJson(Map<String, dynamic> json) {
+    return WatchedToken(
+      id: json['id']?.toString() ?? '',
+      label: json['label']?.toString() ?? (json['id']?.toString() ?? ''),
+      thresholdUsd: (json['thresholdUsd'] as num?)?.toDouble() ?? 0,
+      alertAbove: json['alertAbove'] as bool? ?? true,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'label': label,
+      'thresholdUsd': thresholdUsd,
+      'alertAbove': alertAbove,
+    };
+  }
+}

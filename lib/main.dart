@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+
+import 'data/notification_service.dart';
 import 'features/home_screen.dart';
 import 'features/multichain_screen.dart';
 
-void main() => runApp(const AuraWatchApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.initialize();
+  runApp(const AuraWatchApp());
+}
 
 class AuraWatchApp extends StatelessWidget {
   const AuraWatchApp({super.key});
