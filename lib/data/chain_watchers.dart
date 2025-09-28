@@ -42,6 +42,36 @@ class EthereumWatcher implements ChainWatcher {
     final base =
         'https://api.etherscan.io/api?module=proxy&apikey=$apiKey';
 
+    Never _throwEtherscanError(Map<String, dynamic> payload) {
+      final status = payload['status']?.toString();
+      final message = payload['message'];
+      final result = payload['result'];
+      final errorMessage = message ?? result ?? 'Unknown Etherscan error';
+
+      if (status == '0' && errorMessage is String) {
+        throw Exception('Etherscan error: $errorMessage');
+      }
+
+      if (result is Map<String, dynamic>) {
+        final innerMessage = result['message'];
+        if (innerMessage is String && innerMessage.isNotEmpty) {
+          throw Exception('Etherscan error: $innerMessage');
+        }
+      }
+
+      throw Exception('Etherscan error: $errorMessage');
+    }
+
+    String _extractHexString(Map<String, dynamic> payload) {
+      final result = payload['result'];
+      if (result is String && result.startsWith('0x')) {
+        return result;
+      }
+      _throwEtherscanError(payload);
+    }
+
+    int _parseHexInt(String hex) => int.parse(hex.substring(2), radix: 16);
+
     // Fetch latest block number
     try {
       final latestRes =
@@ -50,9 +80,8 @@ class EthereumWatcher implements ChainWatcher {
         throw Exception('ETH block error ${latestRes.statusCode}');
       }
       final latestJson = jsonDecode(latestRes.body) as Map<String, dynamic>;
-      final latestHex = latestJson['result']?.toString();
-      if (latestHex == null) return [];
-      var blockNum = int.parse(latestHex.substring(2), radix: 16);
+      final latestHex = _extractHexString(latestJson);
+      var blockNum = _parseHexInt(latestHex);
 
       final whales = <WhaleTx>[];
       while (whales.length < limit && blockNum >= 0) {
@@ -64,17 +93,33 @@ class EthereumWatcher implements ChainWatcher {
           throw Exception('ETH block fetch error ${res.statusCode}');
         }
         final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final block = data['result'] as Map<String, dynamic>?;
-        if (block == null) break;
+        if (data.containsKey('error')) {
+          final err = data['error'];
+          throw Exception('Etherscan error: ${err?['message'] ?? err}');
+        }
+
+        final result = data['result'];
+        if (result == null) {
+          break;
+        }
+        if (result is! Map<String, dynamic>) {
+          _throwEtherscanError(data);
+        }
+        final block = result;
         final tsHex = block['timestamp']?.toString() ?? '0x0';
         final ts = DateTime.fromMillisecondsSinceEpoch(
-            int.parse(tsHex.substring(2), radix: 16) * 1000,
+            _parseHexInt(tsHex) * 1000,
             isUtc: true);
         final txs = block['transactions'] as List<dynamic>? ?? [];
         for (final t in txs) {
           final valueHex = t['value']?.toString() ?? '0x0';
-          final valueWei =
-              BigInt.tryParse(valueHex.substring(2), radix: 16) ?? BigInt.zero;
+          BigInt valueWei;
+          if (valueHex.startsWith('0x')) {
+            valueWei = BigInt.tryParse(valueHex.substring(2), radix: 16) ??
+                BigInt.zero;
+          } else {
+            valueWei = BigInt.zero;
+          }
           final eth = valueWei.toDouble() / 1e18;
           if (eth >= thresholdEth) {
             final hash = t['hash']?.toString() ?? '';
