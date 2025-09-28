@@ -55,23 +55,25 @@ class SolanaService {
     final httpClient = client ?? http.Client();
     final shouldClose = client == null;
     try {
-      final uri = Uri.parse('https://api.solscan.io/transaction/whale?limit=$limit');
+      final uri = Uri.parse('https://public-api.solscan.io/transaction/whale?limit=$limit');
       final res = await httpClient.get(uri, headers: {'accept': 'application/json'});
       if (res.statusCode != 200) throw Exception('Whales error ${res.statusCode}');
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final arr = (data['data'] as List<dynamic>? ?? []);
+      final decoded = jsonDecode(res.body);
+      final arr = _extractWhaleTransactions(decoded);
       return arr.map((tx) {
-        final hash = (tx['txHash']?.toString() ?? '');
+        final hash = tx['txHash']?.toString() ?? tx['signature']?.toString() ?? '';
         final shortHash = hash.length > 12 ? '${hash.substring(0, 12)}…' : hash;
         // When provided: amount = lamports; format to SOL
-        final amountLamports = (tx['amount'] as num?)?.toDouble();
+        final amountLamports = _parseLamports(tx);
         final sol = amountLamports != null ? (amountLamports / 1e9) : null;
-        final desc =
-        sol != null ? 'Amount: ${sol.toStringAsFixed(4)} SOL' : 'Large transfer';
+        final desc = sol != null
+            ? 'Amount: ${sol.toStringAsFixed(4)} SOL'
+            : (tx['description']?.toString() ?? 'Large transfer');
         // Prefer timestamp from API (e.g., "blockTime") but fall back to now when absent
         final ts = _parseTimestamp(tx['blockTime']) ??
             _parseTimestamp(tx['timestamp']) ??
             _parseTimestamp(tx['time']) ??
+            _parseTimestamp(tx['block_time']) ??
             DateTime.now();
         return WhaleTx(
           shortHash: shortHash,
@@ -102,6 +104,56 @@ class SolanaService {
         return DateTime.fromMillisecondsSinceEpoch(asInt * 1000, isUtc: true);
       }
       return DateTime.tryParse(value);
+    }
+    return null;
+  }
+  static List<Map<String, dynamic>> _extractWhaleTransactions(dynamic decoded) {
+    Iterable<dynamic> raw = const [];
+    if (decoded is List) {
+      raw = decoded;
+    } else if (decoded is Map<String, dynamic>) {
+      final dataField = decoded['data'];
+      if (dataField is List) {
+        raw = dataField;
+      } else if (dataField is Map<String, dynamic>) {
+        final nested = dataField['list'] ?? dataField['data'] ?? dataField['items'];
+        if (nested is List) {
+          raw = nested;
+        }
+      }
+      if (raw.isEmpty) {
+        for (final key in const ['transactions', 'result']) {
+          final value = decoded[key];
+          if (value is List) {
+            raw = value;
+            break;
+          }
+        }
+      }
+    }
+    return raw.whereType<Map<String, dynamic>>().toList();
+  }
+
+  static double? _parseLamports(Map<String, dynamic> tx) {
+    for (final key in const ['amount', 'lamports', 'amountLamports', 'amount_lamports']) {
+      final value = _asDouble(tx[key]);
+      if (value != null) {
+        return value;
+      }
+    }
+    final solAmount = _asDouble(tx['solAmount'] ?? tx['sol_amount'] ?? tx['amountSol']);
+    if (solAmount != null) {
+      return solAmount * 1e9;
+    }
+    return null;
+  }
+
+  static double? _asDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value is String) {
+      return double.tryParse(value);
     }
     return null;
   }

@@ -108,6 +108,36 @@ void main() {
         DateTime.fromMillisecondsSinceEpoch(timestamp * 1000, isUtc: true),
       );
     });
+    test('fetchWhaleActivity supports public Solscan payload shape', () async {
+      const timestamp = 1630000001;
+      final payload = {
+        'success': true,
+        'data': {
+          'list': [
+            {
+              'signature': 'abcdefghijklmnopqrstuvwxyz',
+              'amountLamports': '5000000000',
+              'block_time': timestamp,
+            }
+          ]
+        }
+      };
+      final client = MockClient((request) async {
+        expect(request.url.host, 'public-api.solscan.io');
+        return http.Response(jsonEncode(payload), 200);
+      });
+
+      final whales = await SolanaService.fetchWhaleActivity(limit: 1, client: client);
+
+      expect(whales, hasLength(1));
+      final tx = whales.single;
+      expect(tx.shortHash, 'abcdefghijkl…');
+      expect(tx.amount, closeTo(5, 1e-9));
+      expect(
+        tx.ts,
+        DateTime.fromMillisecondsSinceEpoch(timestamp * 1000, isUtc: true),
+      );
+    });
 
     test('fetchWhaleActivity throws on non-200 responses', () async {
       final client = MockClient((request) async => http.Response('bad', 503));
