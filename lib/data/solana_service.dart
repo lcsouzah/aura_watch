@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'models.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class SolanaService {
 
@@ -50,45 +51,118 @@ class SolanaService {
     }
   }
 
-  /// Solscan “whale” txs (best-effort; API may change/rate-limit)
-  static Future<List<WhaleTx>> fetchWhaleActivity({int limit = 5, http.Client? client}) async {
+  /// Helius – whale feed using known exchange/whale addresses
+  static Future<List<WhaleTx>> fetchWhaleActivity({
+    int limit = 5,
+    double minSol = 50,
+    http.Client? client,
+  }) async {
     final httpClient = client ?? http.Client();
     final shouldClose = client == null;
     try {
-      final uri = Uri.parse('https://public-api.solscan.io/transaction/whale?limit=$limit');
-      final res = await httpClient.get(uri, headers: {'accept': 'application/json'});
-      if (res.statusCode != 200) throw Exception('Whales error ${res.statusCode}');
-      final decoded = jsonDecode(res.body);
-      final arr = _extractWhaleTransactions(decoded);
-      return arr.map((tx) {
-        final hash = tx['txHash']?.toString() ?? tx['signature']?.toString() ?? '';
-        final shortHash = hash.length > 12 ? '${hash.substring(0, 12)}…' : hash;
-        // When provided: amount = lamports; format to SOL
-        final amountLamports = _parseLamports(tx);
-        final sol = amountLamports != null ? (amountLamports / 1e9) : null;
-        final desc = sol != null
-            ? 'Amount: ${sol.toStringAsFixed(4)} SOL'
-            : (tx['description']?.toString() ?? 'Large transfer');
-        // Prefer timestamp from API (e.g., "blockTime") but fall back to now when absent
-        final ts = _parseTimestamp(tx['blockTime']) ??
-            _parseTimestamp(tx['timestamp']) ??
-            _parseTimestamp(tx['time']) ??
-            _parseTimestamp(tx['block_time']) ??
-            DateTime.now();
-        return WhaleTx(
-          shortHash: shortHash,
-          chain: 'solana',
-          desc: desc,
-          ts: ts,
-          amount: sol,
+      final heliusKey = dotenv.env['HELIUS_API_KEY'] ?? '';
+      if (heliusKey.isEmpty) throw Exception('Helius API key missing');
+      final uri = Uri.parse('https://mainnet.helius-rpc.com/?api-key=$heliusKey');
+
+      // Try a few known whale wallets until one yields transactions
+      const whaleWallets = [
+        '7bK3n6LiUPsTbnWeCjFJj3u4Z3dxFXVezU1DCGZ3d5dY', // Binance
+        '8N9J6H4wY8AFJdwGJkTxgV1quQwcdKeKkzVxu1W9vGNo', // Coinbase
+        'H3a41Xr1zThB2ETTtP7h66Yks3axS5pVq3F5V2X9A7kR', // Jump
+        '2Ugqk3jmcgUMViFiD93SHf2FXS62m1ezfUcoBfK5d1U5', // Kraken
+      ];
+
+      final List<WhaleTx> whales = [];
+
+      for (final address in whaleWallets) {
+        final sigBody = jsonEncode({
+          "jsonrpc": "2.0",
+          "id": "aura_watch",
+          "method": "getSignaturesForAddress",
+          "params": [address, {"limit": limit}]
+        });
+
+        final sigRes = await httpClient.post(
+          uri,
+          headers: {"Content-Type": "application/json"},
+          body: sigBody,
         );
-      }).toList();
-    } finally {
-      if (shouldClose) {
-        httpClient.close();
+
+        if (sigRes.statusCode != 200) continue;
+        final sigData = jsonDecode(sigRes.body);
+        final sigs = (sigData['result'] as List?) ?? [];
+        if (sigs.isEmpty) continue;
+
+        for (final s in sigs) {
+          final sig = s['signature']?.toString();
+          if (sig == null) continue;
+
+          final txBody = jsonEncode({
+            "jsonrpc": "2.0",
+            "id": "aura_watch",
+            "method": "getTransaction",
+            "params": [sig, {"encoding": "jsonParsed"}],
+          });
+
+          final txRes = await httpClient.post(uri,
+              headers: {"Content-Type": "application/json"}, body: txBody);
+          if (txRes.statusCode != 200) continue;
+
+          final txJson = jsonDecode(txRes.body);
+          final tx = txJson['result'];
+          if (tx == null) continue;
+
+          final instructions =
+              (tx['transaction']?['message']?['instructions'] as List?) ?? [];
+          for (final ins in instructions) {
+            final parsed = ins['parsed'];
+            if (ins['program'] == 'system' &&
+                parsed is Map &&
+                parsed['type'] == 'transfer') {
+              final info = parsed['info'] as Map?;
+              final lamports = (info?['lamports'] as num?)?.toDouble() ?? 0;
+              final sol = lamports / 1e9;
+              if (sol >= minSol) {
+                final src = info?['source']?.toString() ?? 'unknown';
+                final dst = info?['destination']?.toString() ?? 'unknown';
+                final blockTime = tx['blockTime'] ??
+                    s['blockTime'] ??
+                    DateTime.now().millisecondsSinceEpoch ~/ 1000;
+                final ts = DateTime.fromMillisecondsSinceEpoch(
+                    blockTime * 1000,
+                    isUtc: true);
+                final shortHash =
+                sig.length > 12 ? '${sig.substring(0, 12)}…' : sig;
+
+                whales.add(WhaleTx(
+                  shortHash: shortHash,
+                  chain: 'solana',
+                  desc:
+                  '$src → $dst: ${sol.toStringAsFixed(2)} SOL (${address.substring(0, 4)}...)',
+                  ts: ts,
+                  amount: sol,
+                ));
+              }
+            }
+          }
+        }
+
+        if (whales.isNotEmpty) break; // stop once we got some data
       }
+
+      whales.sort((a, b) => b.ts.compareTo(a.ts));
+      return whales;
+    } finally {
+      if (shouldClose) httpClient.close();
     }
   }
+
+
+
+
+
+
+
 
   /// Attempt to parse a Solscan timestamp field.
   ///

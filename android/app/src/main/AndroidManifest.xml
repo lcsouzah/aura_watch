@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="aura_watch"
+        android:label="Aura Watch"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
