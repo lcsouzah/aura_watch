@@ -27,7 +27,10 @@ class SolanaService {
   }
 
   /// CoinGecko – Trending tokens (Solana category)
-  static Future<List<TokenMarket>> fetchTrendingTokens({int limit = 5, http.Client? client}) async {
+  static Future<List<TokenMarket>> fetchTrendingTokens({
+    int limit = 5,
+    http.Client? client,
+  }) async {
     final httpClient = client ?? http.Client();
     final shouldClose = client == null;
     try {
@@ -38,12 +41,31 @@ class SolanaService {
       final res = await httpClient.get(uri);
       if (res.statusCode != 200) throw Exception('Trending error ${res.statusCode}');
       final list = jsonDecode(res.body) as List<dynamic>;
-      return list.map((e) {
+      final filtered = list.where((e) {
+        final id = e['id']?.toString();
+        final symbol = e['symbol']?.toString();
+        // Stablecoins are filtered here to keep the Trending section volatile.
+        return !isStablecoinId(id) && !isStablecoinSymbol(symbol);
+      }).map((e) {
         final name = e['name']?.toString() ?? 'Unknown';
         final price = (e['current_price'] as num?)?.toDouble() ?? 0.0;
         final vol = (e['total_volume'] as num?)?.toDouble() ?? 0.0;
-        return TokenMarket(name: name, price: price, volume24h: vol);
+        final id = e['id']?.toString() ?? name.toLowerCase();
+        final rawSymbol = e['symbol']?.toString();
+        final computedSymbol = (rawSymbol != null && rawSymbol.isNotEmpty)
+            ? rawSymbol
+            : (name.isNotEmpty
+            ? name.substring(0, name.length >= 3 ? 3 : name.length)
+            : 'TOK');
+        return TokenMarket(
+          id: id,
+          symbol: computedSymbol.toUpperCase(),
+          name: name,
+          price: price,
+          volume24h: vol,
+        );
       }).toList();
+      return filtered;
     } finally {
       if (shouldClose) {
         httpClient.close();
@@ -51,10 +73,52 @@ class SolanaService {
     }
   }
 
-  /// Helius – whale feed using known exchange/whale addresses
+  /// CoinGecko – Dedicated stablecoin metrics for the Stablecoins section.
+  static Future<List<StablecoinMarket>> fetchStablecoinMarkets({
+    List<StablecoinInfo> stablecoins = supportedStablecoins,
+    http.Client? client,
+  }) async {
+    if (stablecoins.isEmpty) {
+      return const [];
+    }
+    final httpClient = client ?? http.Client();
+    final shouldClose = client == null;
+    try {
+      final ids = stablecoins.map((e) => e.coingeckoId).join(',');
+      final uri = Uri.parse(
+        'https://api.coingecko.com/api/v3/coins/markets'
+            '?vs_currency=usd&ids=$ids&order=market_cap_desc&per_page=${stablecoins.length}',
+      );
+      final res = await httpClient.get(uri);
+      if (res.statusCode != 200) {
+        throw Exception('Stablecoin fetch failed ${res.statusCode}');
+      }
+      final list = jsonDecode(res.body) as List<dynamic>;
+      final markets = <StablecoinMarket>[];
+      for (final info in stablecoins) {
+        final entry = list.cast<Map<String, dynamic>?>().firstWhere(
+              (item) => item?['id']?.toString() == info.coingeckoId,
+          orElse: () => null,
+        );
+        final price = (entry?['current_price'] as num?)?.toDouble() ?? 1.0;
+        final volume = (entry?['total_volume'] as num?)?.toDouble() ?? 0.0;
+        markets.add(StablecoinMarket(info: info, price: price, volume24h: volume));
+      }
+      return markets;
+    } finally {
+      if (shouldClose) httpClient.close();
+    }
+  }
+
+  /// Helius – whale feed using known exchange/whale addresses.
+  ///
+  /// [minSol] is the native SOL threshold (default 50 SOL) and [timeWindow]
+  /// defines how far back we scan (defaults to the last hour). Both values
+  /// are documented here so the whale cadence is easy to tune.
   static Future<List<WhaleTx>> fetchWhaleActivity({
-    int limit = 5,
+    int limit = 10,
     double minSol = 50,
+    Duration timeWindow = const Duration(hours: 1),
     http.Client? client,
   }) async {
     final httpClient = client ?? http.Client();
@@ -73,6 +137,7 @@ class SolanaService {
       ];
 
       final List<WhaleTx> whales = [];
+      final now = DateTime.now().toUtc();
 
       for (final address in whaleWallets) {
         final sigBody = jsonEncode({
@@ -114,6 +179,18 @@ class SolanaService {
 
           final instructions =
               (tx['transaction']?['message']?['instructions'] as List?) ?? [];
+          final blockTime = tx['blockTime'] ??
+              s['blockTime'] ??
+              DateTime.now().millisecondsSinceEpoch ~/ 1000;
+          final ts = DateTime.fromMillisecondsSinceEpoch(
+            blockTime * 1000,
+            isUtc: true,
+          );
+
+          if (now.difference(ts) > timeWindow) {
+            continue; // Skip stale events outside the monitoring window.
+          }
+
           for (final ins in instructions) {
             final parsed = ins['parsed'];
             if (ins['program'] == 'system' &&
@@ -125,18 +202,15 @@ class SolanaService {
               if (sol >= minSol) {
                 final src = info?['source']?.toString() ?? 'unknown';
                 final dst = info?['destination']?.toString() ?? 'unknown';
-                final blockTime = tx['blockTime'] ??
-                    s['blockTime'] ??
-                    DateTime.now().millisecondsSinceEpoch ~/ 1000;
-                final ts = DateTime.fromMillisecondsSinceEpoch(
-                    blockTime * 1000,
-                    isUtc: true);
                 final shortHash =
                 sig.length > 12 ? '${sig.substring(0, 12)}…' : sig;
 
                 whales.add(WhaleTx(
+                  id: '$sig|SOL|$src|$dst',
                   shortHash: shortHash,
                   chain: 'solana',
+                  tokenSymbol: 'SOL',
+                  movementType: 'transfer',
                   desc:
                   '$src → $dst: ${sol.toStringAsFixed(2)} SOL (${address.substring(0, 4)}...)',
                   ts: ts,
@@ -145,18 +219,29 @@ class SolanaService {
               }
             }
           }
+
+          // Track stablecoin whale movements by comparing token balances.
+          final stableEvents = _extractStableWhales(
+            tx,
+            signature: sig,
+            shortHash: sig.length > 12 ? '${sig.substring(0, 12)}…' : sig,
+            timestamp: ts,
+          );
+          whales.addAll(stableEvents);
         }
 
         if (whales.isNotEmpty) break; // stop once we got some data
       }
 
       whales.sort((a, b) => b.ts.compareTo(a.ts));
+      if (whales.length > limit) {
+        return whales.take(limit).toList();
+      }
       return whales;
     } finally {
       if (shouldClose) httpClient.close();
     }
   }
-
 
 
 
@@ -231,4 +316,97 @@ class SolanaService {
     }
     return null;
   }
+
+  static List<WhaleTx> _extractStableWhales(
+      Map<String, dynamic> tx, {
+        required String signature,
+        required String shortHash,
+        required DateTime timestamp,
+      }) {
+    final meta = tx['meta'] as Map<String, dynamic>?;
+    if (meta == null) return const [];
+    final preBalances =
+        (meta['preTokenBalances'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ??
+            const <Map<String, dynamic>>[];
+    final postBalances =
+        (meta['postTokenBalances'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ??
+            const <Map<String, dynamic>>[];
+
+    final Map<int, _TokenBalanceSnapshot> pre = {};
+    for (final item in preBalances) {
+      final idx = item['accountIndex'];
+      if (idx is! int) continue;
+      final mint = item['mint']?.toString();
+      final info = stablecoinByMint(mint);
+      if (info == null) continue;
+      final owner = item['owner']?.toString() ?? 'unknown';
+      final amount = _parseUiAmount(item['uiTokenAmount']) ?? 0;
+      pre[idx] = _TokenBalanceSnapshot(info: info, owner: owner, amount: amount);
+    }
+
+    final Map<int, _TokenBalanceSnapshot> post = {};
+    for (final item in postBalances) {
+      final idx = item['accountIndex'];
+      if (idx is! int) continue;
+      final mint = item['mint']?.toString();
+      final info = stablecoinByMint(mint);
+      if (info == null) continue;
+      final owner = item['owner']?.toString() ?? 'unknown';
+      final amount = _parseUiAmount(item['uiTokenAmount']) ?? 0;
+      post[idx] = _TokenBalanceSnapshot(info: info, owner: owner, amount: amount);
+    }
+
+    final whaleEvents = <WhaleTx>[];
+    final accountIndexes = {...pre.keys, ...post.keys};
+    for (final idx in accountIndexes) {
+      final before = pre[idx];
+      final after = post[idx];
+      final info = after?.info ?? before?.info;
+      if (info == null) continue;
+      final owner = after?.owner ?? before?.owner ?? 'unknown';
+      final amountChange = (after?.amount ?? 0) - (before?.amount ?? 0);
+      final absChange = amountChange.abs();
+      final usdValue = absChange * 1.0; // Stablecoins hover ≈ $1
+      if (usdValue < info.whaleThresholdUsd) continue;
+      final movementType = amountChange > 0 ? 'buy' : 'sell';
+      whaleEvents.add(WhaleTx(
+        id: '$signature|${info.symbol}|$idx|$movementType',
+        shortHash: shortHash,
+        chain: 'solana',
+        tokenSymbol: info.symbol,
+        movementType: movementType,
+        desc:
+        '$owner ${movementType == 'buy' ? 'received' : 'sent'} ${absChange.toStringAsFixed(0)} ${info.symbol}',
+        ts: timestamp,
+        amount: absChange,
+        usdValue: usdValue,
+      ));
+    }
+    return whaleEvents;
+  }
+
+  static double? _parseUiAmount(dynamic payload) {
+    if (payload is Map<String, dynamic>) {
+      final raw = payload['uiAmount'] ?? payload['uiAmountString'];
+      if (raw is num) return raw.toDouble();
+      if (raw is String) return double.tryParse(raw);
+    } else if (payload is num) {
+      return payload.toDouble();
+    } else if (payload is String) {
+      return double.tryParse(payload);
+    }
+    return null;
+  }
+}
+
+class _TokenBalanceSnapshot {
+  final StablecoinInfo info;
+  final String owner;
+  final double amount;
+
+  const _TokenBalanceSnapshot({
+    required this.info,
+    required this.owner,
+    required this.amount,
+  });
 }

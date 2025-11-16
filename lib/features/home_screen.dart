@@ -16,11 +16,13 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const _refreshInterval = Duration(seconds: 60);
+  static const _refreshInterval = Duration(seconds: 60); // price + whale poll cadence
+  static const _whaleWindow = Duration(hours: 1); // rolling whale window
   static final _num = NumberFormat.decimalPattern();
   String _solPrice = 'Loading…';
   List<TokenMarket> _trending = const [];
   List<WhaleTx> _whales = const [];
+  List<StablecoinMarket> _stablecoinMarkets = const [];
   bool _loading = false;
   String? _error;
   String? _watchlistError;
@@ -30,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<WatchedToken> _watchlist = const [];
   Map<String, double> _latestWatchPrices = const {};
   final Map<String, bool> _lastThresholdState = {};
+  final Set<String> _processedWhaleEventIds = {};
 
   Future<void> _refreshAll() async {
     if (!mounted) return;
@@ -42,7 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final results = await Future.wait([
         SolanaService.fetchSolPrice(),
         SolanaService.fetchTrendingTokens(limit: 5),
-        SolanaService.fetchWhaleActivity(limit: 5),
+        SolanaService.fetchWhaleActivity(limit: 12, timeWindow: _whaleWindow),
+        SolanaService.fetchStablecoinMarkets(),
       ]);
       final watchlistPrices = await _fetchWatchlistPrices();
       if (!mounted) return;
@@ -50,8 +54,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _solPrice = results[0] as String;
         _trending = results[1] as List<TokenMarket>;
         _whales = results[2] as List<WhaleTx>;
+        _stablecoinMarkets = results[3] as List<StablecoinMarket>;
         _latestWatchPrices = watchlistPrices;
       });
+      _handleWhaleNotifications(_whales);
       _evaluateWatchlistAlerts(watchlistPrices);
     } catch (e) {
       if (!mounted) return;
@@ -60,6 +66,47 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() => _loading = false);
     }
+  }
+
+  void _handleWhaleNotifications(List<WhaleTx> events) {
+    if (!mounted || events.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    for (final event in events) {
+      if (_processedWhaleEventIds.contains(event.id)) {
+        continue;
+      }
+      if (!_isWhaleEventRelevant(event)) {
+        continue;
+      }
+      _processedWhaleEventIds.add(event.id);
+      final amountText = event.amount != null
+          ? '${event.amount!.toStringAsFixed(2)} ${event.tokenSymbol}'
+          : event.tokenSymbol;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Whale ${event.movementType} • $amountText on ${event.chain.toUpperCase()}',
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      unawaited(NotificationService.showWhaleAlert(event));
+    }
+  }
+
+  bool _isWhaleEventRelevant(WhaleTx event) {
+    if (isStablecoinSymbol(event.tokenSymbol)) {
+      return true;
+    }
+    final needle = event.tokenSymbol.toLowerCase();
+    for (final token in _watchlist) {
+      if (token.id.toLowerCase().contains(needle) ||
+          token.label.toLowerCase().contains(needle)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @override
@@ -438,16 +485,13 @@ class _HomeScreenState extends State<HomeScreen> {
               trailing: Text('\$${t.price.toStringAsFixed(4)}'),
             )),
 
+          _buildStablecoinSection(),
+
           _sectionTitle('Whale Activity'),
           if (_whales.isEmpty)
             const Text('No data yet.')
           else
-            ..._whales.map((w) => ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text('${w.chain.toUpperCase()} • ${w.shortHash}'),
-              subtitle: Text(w.desc),
-            )),
+            ..._whales.map(_buildWhaleTile),
           const SizedBox(height: 16),
           TextButton(
             onPressed: () => Navigator.pushNamed(context, '/multi'),
@@ -456,5 +500,59 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildStablecoinSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Stablecoins'),
+        if (_stablecoinMarkets.isEmpty)
+          const Text('No stablecoin data yet.')
+        else
+          ..._stablecoinMarkets.map((market) {
+            final events = _whaleEventsForSymbol(market.info.symbol);
+            final latest = events.isNotEmpty ? events.first : null;
+            final whaleSummary = latest != null
+                ? '${latest.movementType.toUpperCase()} • '
+                '${latest.amount?.toStringAsFixed(0) ?? '-'} ${market.info.symbol}'
+                : 'Quiet (last ${_whaleWindow.inMinutes}m)';
+            final whaleCount = events.length;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text('${market.info.symbol} • ${market.info.chainLabel}'),
+                subtitle: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Volume 24h: ${_num.format(market.volume24h)}'),
+                    Text('$whaleSummary • $whaleCount whale moves'),
+                  ],
+                ),
+                trailing: Text('~\$${market.price.toStringAsFixed(4)}'),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildWhaleTile(WhaleTx w) {
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      title: Text('${w.chain.toUpperCase()} • ${w.shortHash}'),
+      subtitle: Text('${w.tokenSymbol} ${w.movementType} • ${w.desc}'),
+    );
+  }
+
+  List<WhaleTx> _whaleEventsForSymbol(String symbol) {
+    final upper = symbol.toUpperCase();
+    final events = _whales
+        .where((event) => event.tokenSymbol.toUpperCase() == upper)
+        .toList();
+    events.sort((a, b) => b.ts.compareTo(a.ts));
+    return events;
   }
 }

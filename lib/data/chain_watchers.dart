@@ -126,8 +126,11 @@ class EthereumWatcher implements ChainWatcher {
             final shortHash =
             hash.length > 12 ? '${hash.substring(0, 12)}…' : hash;
             whales.add(WhaleTx(
+              id: '$hash|ETH',
               shortHash: shortHash,
               chain: 'ethereum',
+              tokenSymbol: 'ETH',
+              movementType: 'transfer',
               desc: 'Amount: ${eth.toStringAsFixed(2)} ETH',
               ts: ts,
               amount: eth,
@@ -204,8 +207,11 @@ class BitcoinWatcher implements ChainWatcher {
             ts = DateTime.now();
           }
           whales.add(WhaleTx(
+            id: '$hash|BTC',
             shortHash: shortHash,
             chain: 'bitcoin',
+            tokenSymbol: 'BTC',
+            movementType: 'transfer',
             desc: 'Amount: ${btc.toStringAsFixed(2)} BTC',
             ts: ts,
             amount: btc,

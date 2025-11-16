@@ -41,4 +41,18 @@ class NotificationService {
       _defaultDetails,
     );
   }
+
+  static Future<void> showWhaleAlert(WhaleTx event) async {
+    final amountText = event.amount != null
+        ? '${event.amount!.toStringAsFixed(2)} ${event.tokenSymbol}'
+        : event.tokenSymbol;
+    final movement = event.movementType.toUpperCase();
+    final chainLabel = event.chain.toUpperCase();
+    await _plugin.show(
+      event.id.hashCode,
+      'Whale $movement on $chainLabel',
+      '$amountText • ${event.desc}',
+      _defaultDetails,
+    );
+  }
 }

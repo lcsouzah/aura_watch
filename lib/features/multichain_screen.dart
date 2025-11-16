@@ -135,7 +135,7 @@ class _MultiChainScreenState extends State<MultiChainScreen> with SingleTickerPr
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: Text(w.shortHash),
-            subtitle: Text(w.desc),
+            subtitle: Text('${w.tokenSymbol} ${w.movementType} • ${w.desc}'),
           )),
       ],
     );
