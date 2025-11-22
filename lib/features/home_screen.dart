@@ -377,41 +377,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildWatchlistSection() {
-    final hasTokens = _watchlist.isNotEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('Watchlist Alerts'),
-        if (_watchlistError != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Text(
-              'Watchlist error: $_watchlistError',
-              style: const TextStyle(color: Colors.redAccent),
-            ),
-          ),
-        if (_watchlistLoading)
-          const Center(child: CircularProgressIndicator())
-        else if (!hasTokens)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text('Add a token to start receiving alerts.'),
-          )
-        else
-          ..._watchlist.map(_buildWatchTile),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: _addToken,
-            icon: const Icon(Icons.add_alert_outlined),
-            label: const Text('Add token'),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildWatchTile(WatchedToken token) {
     final price = _latestWatchPrices[_normalizedId(token.id)];
     final priceText =
@@ -444,107 +409,232 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _sectionTitle(String text) => Padding(
-    padding: const EdgeInsets.only(top: 16, bottom: 8),
-    child: Text(text, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-  );
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Aura Watch'),
-        actions: [
-          IconButton(
-            onPressed: _loading ? null : _refreshAll,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-          )
-        ],
+    return DefaultTabController(
+      length: 4,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Aura Watch'),
+          actions: [
+            IconButton(
+              onPressed: _loading ? null : _refreshAll,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
+            )
+          ],
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildTopSummary(context),
+            const TabBar(
+              isScrollable: false,
+              tabs: [
+                Tab(text: 'Watchlist'),
+                Tab(text: 'Trending'),
+                Tab(text: 'Stablecoins'),
+                Tab(text: 'Whales'),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildWatchlistTab(),
+                  _buildTrendingTab(),
+                  _buildStablecoinsTab(),
+                  _buildWhalesTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+    );
+  }
+
+  Widget _buildTopSummary(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_error != null) ...[
             Text('Error: $_error', style: const TextStyle(color: Colors.redAccent)),
             const SizedBox(height: 12),
           ],
-          const Text('SOL Price', style: TextStyle(fontSize: 14, color: Colors.grey)),
+          Text('SOL Price', style: textTheme.labelMedium?.copyWith(color: Colors.grey)),
           const SizedBox(height: 6),
-          Text(_solPrice, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-
-          _sectionTitle('Trending Tokens (Solana)'),
-          if (_trending.isEmpty)
-            const Text('No data yet.')
-          else
-            ..._trending.map((t) => ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text(t.name),
-              subtitle: Text('Vol 24h: ${_num.format(t.volume24h)}'),
-              trailing: Text('\$${t.price.toStringAsFixed(4)}'),
-            )),
-
-          _buildStablecoinSection(),
-
-          _sectionTitle('Whale Activity'),
-          if (_whales.isEmpty)
-            const Text('No data yet.')
-          else
-            ..._whales.map(_buildWhaleTile),
-          const SizedBox(height: 16),
-          TextButton(
-            onPressed: () => Navigator.pushNamed(context, '/multi'),
-            child: const Text('Open Multi‑Chain Watch'),
+          Text(
+            _solPrice,
+            style: textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold) ??
+                const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/multi'),
+              icon: const Icon(Icons.explore_outlined),
+              label: const Text('Open Multi-Chain Watch'),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStablecoinSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('Stablecoins'),
-        if (_stablecoinMarkets.isEmpty)
-          const Text('No stablecoin data yet.')
-        else
-          ..._stablecoinMarkets.map((market) {
-            final events = _whaleEventsForSymbol(market.info.symbol);
-            final latest = events.isNotEmpty ? events.first : null;
-            final whaleSummary = latest != null
-                ? '${latest.movementType.toUpperCase()} • '
-                '${latest.amount?.toStringAsFixed(0) ?? '-'} ${market.info.symbol}'
-                : 'Quiet (last ${_whaleWindow.inMinutes}m)';
-            final whaleCount = events.length;
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                title: Text('${market.info.symbol} • ${market.info.chainLabel}'),
-                subtitle: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Volume 24h: ${_num.format(market.volume24h)}'),
-                    Text('$whaleSummary • $whaleCount whale moves'),
-                  ],
-                ),
-                trailing: Text('~\$${market.price.toStringAsFixed(4)}'),
-              ),
-            );
-          }),
-      ],
+  Widget _buildWatchlistTab() {
+    if (_watchlistLoading) {
+      return _buildMessageTab('Loading watchlist…', loading: true);
+    }
+    final children = <Widget>[];
+    if (_watchlistError != null) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            'Watchlist error: $_watchlistError',
+            style: const TextStyle(color: Colors.redAccent),
+          ),
+        ),
+      );
+    }
+    if (_watchlist.isEmpty) {
+      children.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Text('Your watchlist is empty.'),
+        ),
+      );
+    } else {
+      children.addAll(_watchlist.map(_buildWatchTile));
+    }
+    children.add(
+      Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          onPressed: _addToken,
+          icon: const Icon(Icons.add_alert_outlined),
+          label: const Text('Add token'),
+        ),
+      ),
+    );
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: children,
+    );
+  }
+
+  Widget _buildTrendingTab() {
+    if (_trending.isEmpty) {
+      return _buildMessageTab('No trending tokens to show.');
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _trending.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final t = _trending[index];
+        return Card(
+          child: ListTile(
+            title: Text(t.name),
+            subtitle: Text('Vol 24h: ${_num.format(t.volume24h)}'),
+            trailing: Text('\$${t.price.toStringAsFixed(4)}'),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStablecoinsTab() {
+    if (_stablecoinMarkets.isEmpty) {
+      return _buildMessageTab('No stablecoins available.');
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _stablecoinMarkets.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final market = _stablecoinMarkets[index];
+        final events = _whaleEventsForSymbol(market.info.symbol);
+        final latest = events.isNotEmpty ? events.first : null;
+        final whaleSummary = latest != null
+            ? '${latest.movementType.toUpperCase()} • '
+            '${latest.amount?.toStringAsFixed(0) ?? '-'} ${market.info.symbol}'
+            : 'Quiet (last ${_whaleWindow.inMinutes}m)';
+        final whaleCount = events.length;
+        return Card(
+          child: ListTile(
+            title: Text('${market.info.symbol} • ${market.info.chainLabel}'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Price ≈ \$${market.price.toStringAsFixed(4)}'),
+                Text('Volume 24h: ${_num.format(market.volume24h)}'),
+                Text('$whaleSummary • $whaleCount whale moves'),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildWhalesTab() {
+    if (_whales.isEmpty) {
+      return _buildMessageTab('No recent whale activity.');
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _whales.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) => Card(child: _buildWhaleTile(_whales[index])),
     );
   }
 
   Widget _buildWhaleTile(WhaleTx w) {
+    final amountText = w.amount != null
+        ? '${w.amount!.toStringAsFixed(2)} ${w.tokenSymbol}'
+        : w.tokenSymbol;
+    final timeText = _formatRelativeTime(w.ts);
     return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      title: Text('${w.chain.toUpperCase()} • ${w.shortHash}'),
-      subtitle: Text('${w.tokenSymbol} ${w.movementType} • ${w.desc}'),
+      title: Text('${w.tokenSymbol} ${w.movementType.toUpperCase()}'),
+      subtitle: Text('${w.chain.toUpperCase()} • ${w.desc} • $amountText'),
+      trailing: Text(timeText),
     );
+  }
+
+  Widget _buildMessageTab(String message, {bool loading = false}) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (loading) ...[
+                const CircularProgressIndicator(),
+                const SizedBox(height: 12),
+              ],
+              Text(message, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatRelativeTime(DateTime ts) {
+    final now = DateTime.now();
+    final diff = now.difference(ts);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   List<WhaleTx> _whaleEventsForSymbol(String symbol) {
