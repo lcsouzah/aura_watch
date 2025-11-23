@@ -4,6 +4,11 @@ import 'package:intl/intl.dart';
 import 'models.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+enum SolanaRpcProvider {
+  helius,
+  generic,
+}
+
 class SolanaService {
 
   /// CoinGecko – SOL price (USD)
@@ -120,13 +125,41 @@ class SolanaService {
     double minSol = 50,
     Duration timeWindow = const Duration(hours: 1),
     http.Client? client,
+
+    /// New optional config to select RPC provider and credentials.
+    SolanaRpcProvider provider = SolanaRpcProvider.helius,
+    String? rpcUrl,
+    String? apiKey,
   }) async {
     final httpClient = client ?? http.Client();
     final shouldClose = client == null;
     try {
-      final heliusKey = dotenv.env['HELIUS_API_KEY'] ?? '';
-      if (heliusKey.isEmpty) throw Exception('Helius API key missing');
-      final uri = Uri.parse('https://mainnet.helius-rpc.com/?api-key=$heliusKey');
+      // Decide which base URL to use depending on the provider and arguments.
+      late final String rpcEndpoint;
+
+      switch (provider) {
+        case SolanaRpcProvider.helius:
+        // Use the explicit apiKey if provided, otherwise fall back to .env
+          final effectiveKey = (apiKey ?? dotenv.env['HELIUS_API_KEY'] ?? '').trim();
+          if (effectiveKey.isEmpty) {
+            throw Exception('Helius API key missing');
+          }
+          rpcEndpoint = 'https://mainnet.helius-rpc.com/?api-key=$effectiveKey';
+          break;
+
+        case SolanaRpcProvider.generic:
+        // For a generic Solana RPC node, we do not assume any key format.
+        // Use rpcUrl if provided, otherwise default to the public mainnet endpoint.
+          final effectiveUrl =
+          (rpcUrl ?? 'https://api.mainnet-beta.solana.com').trim();
+          if (effectiveUrl.isEmpty) {
+            throw Exception('Generic RPC URL is empty');
+          }
+          rpcEndpoint = effectiveUrl;
+          break;
+      }
+
+      final uri = Uri.parse(rpcEndpoint);
 
       // Try a few known whale wallets until one yields transactions
       const whaleWallets = [
