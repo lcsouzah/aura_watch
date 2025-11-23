@@ -151,7 +151,7 @@ class SolanaService {
         // For a generic Solana RPC node, we do not assume any key format.
         // Use rpcUrl if provided, otherwise default to the public mainnet endpoint.
           final effectiveUrl =
-          (rpcUrl ?? 'https://api.mainnet-beta.solana.com').trim();
+              (rpcUrl ?? 'https://api.mainnet-beta.solana.com').trim();
           if (effectiveUrl.isEmpty) {
             throw Exception('Generic RPC URL is empty');
           }
