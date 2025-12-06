@@ -8,7 +8,7 @@ import '../data/notification_service.dart';
 import '../data/solana_service.dart';
 import '../data/token_price_service.dart';
 import '../data/watchlist_repository.dart';
-import '../screens/api_settings_screen.dart';
+import '../screens/solana_api_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -424,12 +424,12 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'Refresh',
             ),
             IconButton(
-              icon: const Icon(Icons.settings),
-              tooltip: 'API Settings',
+              icon: const Icon(Icons.settings_input_antenna),
+              tooltip: 'Solana API / RPC Settings',
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const ApiSettingsScreen(),
+                    builder: (_) => const SolanaApiSettingsScreen(),
                   ),
                 );
               },

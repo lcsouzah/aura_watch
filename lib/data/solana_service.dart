@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../services/api_settings_repository.dart';
+import '../services/solana_api_settings_repository.dart';
 import 'models.dart';
 
 enum SolanaRpcProvider {
@@ -17,10 +18,14 @@ class SolanaService {
     String? rpcUrl,
     String? apiKey,
   }) async {
-    final settings = await ApiSettingsRepository.instance.load();
+    final userSettings = await SolanaApiSettingsRepository.instance.load();
+    if (userSettings != null && userSettings.rpcUrl.trim().isNotEmpty) {
+      return Uri.parse(userSettings.rpcUrl.trim());
+    }
 
-    if (settings != null && settings.rpcUrl.trim().isNotEmpty) {
-      return Uri.parse(settings.rpcUrl.trim());
+    final legacySettings = await ApiSettingsRepository.instance.load();
+    if (legacySettings != null && legacySettings.rpcUrl.trim().isNotEmpty) {
+      return Uri.parse(legacySettings.rpcUrl.trim());
     }
 
     late final String rpcEndpoint;
@@ -43,9 +48,9 @@ class SolanaService {
         break;
     }
 
+    // TODO: route additional Solana provider defaults through here as we add them.
     return Uri.parse(rpcEndpoint);
   }
-
   /// CoinGecko – SOL price (USD)
   static Future<String> fetchSolPrice({http.Client? client}) async {
     final httpClient = client ?? http.Client();

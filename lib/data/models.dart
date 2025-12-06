@@ -61,6 +61,155 @@ BlockchainApiProvider providerById(BlockchainApiProviderId id) {
   return kBlockchainApiProviders.firstWhere((p) => p.id == id);
 }
 
+// --- Solana API providers ---------------------------------------------------
+
+enum SolanaApiProviderId {
+  helius,
+  solscan,
+  quickNode,
+  ankr,
+  chainbase,
+  blockPi,
+  drpc,
+  getBlock,
+  alchemy,
+  triton,
+  custom,
+}
+
+class SolanaApiProvider {
+  final SolanaApiProviderId id;
+  final String name;
+  final String description;
+
+  const SolanaApiProvider({
+    required this.id,
+    required this.name,
+    required this.description,
+  });
+}
+
+const List<SolanaApiProvider> kSolanaApiProviders = [
+  SolanaApiProvider(
+    id: SolanaApiProviderId.helius,
+    name: 'Helius',
+    description: 'RPC + webhooks + rich indexing. Paste your Helius RPC URL.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.solscan,
+    name: 'Solscan',
+    description:
+    'Explorer API & token data. Paste your Solscan API base URL + key if required.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.quickNode,
+    name: 'QuickNode',
+    description: 'High-performance RPC. Paste your QuickNode Solana endpoint.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.ankr,
+    name: 'Ankr',
+    description: 'Free Solana RPC. Paste or leave the default Ankr Solana RPC URL.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.chainbase,
+    name: 'Chainbase',
+    description: 'Blockchain data & analytics. Paste your Chainbase endpoint for Solana.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.blockPi,
+    name: 'BlockPI',
+    description:
+    'Distributed RPC network. Paste your BlockPI Solana endpoint or use their public one.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.drpc,
+    name: 'DRPC',
+    description: 'Decentralized RPC. Paste DRPC Solana endpoint.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.getBlock,
+    name: 'GetBlock',
+    description: 'RPC provider. Paste your GetBlock Solana endpoint.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.alchemy,
+    name: 'Alchemy',
+    description: 'RPC + analytics. Paste your Alchemy Solana endpoint.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.triton,
+    name: 'Triton',
+    description: 'High-performance Solana RPC (GenesysGo). Paste your Triton endpoint.',
+  ),
+  SolanaApiProvider(
+    id: SolanaApiProviderId.custom,
+    name: 'Custom RPC',
+    description: 'Any other Solana RPC URL, including full URL with your API key.',
+  ),
+];
+
+SolanaApiProvider solanaProviderById(SolanaApiProviderId id) {
+  return kSolanaApiProviders.firstWhere((p) => p.id == id);
+}
+
+class SolanaApiSettings {
+  final SolanaApiProviderId providerId;
+
+  /// Full Solana RPC / API endpoint URL.
+  /// For most providers this already includes the API key/token.
+  final String rpcUrl;
+
+  const SolanaApiSettings({
+    required this.providerId,
+    required this.rpcUrl,
+  });
+
+  SolanaApiSettings copyWith({
+    SolanaApiProviderId? providerId,
+    String? rpcUrl,
+  }) {
+    return SolanaApiSettings(
+      providerId: providerId ?? this.providerId,
+      rpcUrl: rpcUrl ?? this.rpcUrl,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'providerId': providerId.name,
+    'rpcUrl': rpcUrl,
+  };
+
+  factory SolanaApiSettings.fromJson(Map<String, dynamic> json) {
+    final providerName = json['providerId'] as String?;
+    final providerId = SolanaApiProviderId.values.firstWhere(
+          (e) => e.name == providerName,
+      orElse: () => SolanaApiProviderId.helius,
+    );
+    return SolanaApiSettings(
+      providerId: providerId,
+      rpcUrl: (json['rpcUrl'] as String?) ?? '',
+    );
+  }
+}
+
+class TokenBubbleData {
+  final String symbol; // e.g. "SOL", "USDC"
+  final String mint; // token mint address
+  final double valueUsd; // value of this holding in USD
+  final double amount; // raw amount
+  final String? logoUrl; // optional icon
+
+  const TokenBubbleData({
+    required this.symbol,
+    required this.mint,
+    required this.valueUsd,
+    required this.amount,
+    this.logoUrl,
+  });
+}
+
+
 class ApiSettings {
   final BlockchainApiProviderId providerId;
 

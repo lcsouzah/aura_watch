@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
-
 import '../data/models.dart';
-import '../services/api_settings_repository.dart';
 import '../services/solana_api_settings_repository.dart';
 
-class ApiSettingsScreen extends StatefulWidget {
-  const ApiSettingsScreen({super.key});
+class SolanaApiSettingsScreen extends StatefulWidget {
+  const SolanaApiSettingsScreen({super.key});
 
   @override
-  State<ApiSettingsScreen> createState() => _ApiSettingsScreenState();
+  State<SolanaApiSettingsScreen> createState() =>
+      _SolanaApiSettingsScreenState();
 }
 
-class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
-  BlockchainApiProviderId _selectedId = BlockchainApiProviderId.helius;
+class _SolanaApiSettingsScreenState extends State<SolanaApiSettingsScreen> {
+  SolanaApiProviderId _selectedId = SolanaApiProviderId.helius;
   final TextEditingController _rpcUrlController = TextEditingController();
   bool _loading = true;
   bool _saving = false;
@@ -30,7 +29,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   }
 
   Future<void> _load() async {
-    final existing = await ApiSettingsRepository.instance.load();
+    final existing = await SolanaApiSettingsRepository.instance.load();
     if (!mounted) return;
     setState(() {
       if (existing != null) {
@@ -45,19 +44,22 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     final rpcUrl = _rpcUrlController.text.trim();
     if (rpcUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please paste a valid RPC / API URL.')),
+        const SnackBar(content: Text('Please paste a valid Solana RPC / API URL.')),
       );
       return;
     }
 
     setState(() => _saving = true);
-    final settings = ApiSettings(providerId: _selectedId, rpcUrl: rpcUrl);
-    await ApiSettingsRepository.instance.save(settings);
+    final settings = SolanaApiSettings(
+      providerId: _selectedId,
+      rpcUrl: rpcUrl,
+    );
+    await SolanaApiSettingsRepository.instance.save(settings);
     if (!mounted) return;
     setState(() => _saving = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('API settings saved')),
+      const SnackBar(content: Text('Solana API settings saved')),
     );
     Navigator.of(context).pop();
   }
@@ -70,25 +72,25 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
       );
     }
 
-    final provider = providerById(_selectedId);
+    final provider = solanaProviderById(_selectedId);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Blockchain API Settings'),
+        title: const Text('Solana API / RPC Settings'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            DropdownButtonFormField<BlockchainApiProviderId>(
+            DropdownButtonFormField<SolanaApiProviderId>(
               value: _selectedId,
               isExpanded: true,
               decoration: const InputDecoration(
-                labelText: 'Provider',
+                labelText: 'Solana Provider',
                 border: OutlineInputBorder(),
               ),
-              items: BlockchainApiProviderId.values.map((id) {
-                final p = providerById(id);
+              items: SolanaApiProviderId.values.map((id) {
+                final p = solanaProviderById(id);
                 return DropdownMenuItem(
                   value: id,
                   child: Text(p.name),
@@ -99,7 +101,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
                 setState(() => _selectedId = value);
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -111,7 +113,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
             TextField(
               controller: _rpcUrlController,
               decoration: const InputDecoration(
-                labelText: 'RPC / API endpoint URL',
+                labelText: 'Solana RPC / API endpoint URL',
                 hintText: 'Paste the full URL from your provider dashboard',
                 border: OutlineInputBorder(),
               ),
