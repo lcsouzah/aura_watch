@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'models.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../services/api_settings_repository.dart';
+import 'models.dart';
 
 enum SolanaRpcProvider {
   helius,
@@ -10,6 +11,40 @@ enum SolanaRpcProvider {
 }
 
 class SolanaService {
+
+  static Future<Uri> _resolveSolanaRpcUri({
+    SolanaRpcProvider provider = SolanaRpcProvider.helius,
+    String? rpcUrl,
+    String? apiKey,
+  }) async {
+    final settings = await ApiSettingsRepository.instance.load();
+
+    if (settings != null && settings.rpcUrl.trim().isNotEmpty) {
+      return Uri.parse(settings.rpcUrl.trim());
+    }
+
+    late final String rpcEndpoint;
+
+    switch (provider) {
+      case SolanaRpcProvider.helius:
+        final effectiveKey = (apiKey ?? dotenv.env['HELIUS_API_KEY'] ?? '').trim();
+        if (effectiveKey.isEmpty) {
+          throw Exception('No RPC endpoint configured and Helius API key missing.');
+        }
+        rpcEndpoint = 'https://mainnet.helius-rpc.com/?api-key=$effectiveKey';
+        break;
+
+      case SolanaRpcProvider.generic:
+        final effectiveUrl = (rpcUrl ?? 'https://api.mainnet-beta.solana.com').trim();
+        if (effectiveUrl.isEmpty) {
+          throw Exception('Generic RPC URL is empty');
+        }
+        rpcEndpoint = effectiveUrl;
+        break;
+    }
+
+    return Uri.parse(rpcEndpoint);
+  }
 
   /// CoinGecko – SOL price (USD)
   static Future<String> fetchSolPrice({http.Client? client}) async {
@@ -134,32 +169,11 @@ class SolanaService {
     final httpClient = client ?? http.Client();
     final shouldClose = client == null;
     try {
-      // Decide which base URL to use depending on the provider and arguments.
-      late final String rpcEndpoint;
-
-      switch (provider) {
-        case SolanaRpcProvider.helius:
-        // Use the explicit apiKey if provided, otherwise fall back to .env
-          final effectiveKey = (apiKey ?? dotenv.env['HELIUS_API_KEY'] ?? '').trim();
-          if (effectiveKey.isEmpty) {
-            throw Exception('Helius API key missing');
-          }
-          rpcEndpoint = 'https://mainnet.helius-rpc.com/?api-key=$effectiveKey';
-          break;
-
-        case SolanaRpcProvider.generic:
-        // For a generic Solana RPC node, we do not assume any key format.
-        // Use rpcUrl if provided, otherwise default to the public mainnet endpoint.
-          final effectiveUrl =
-              (rpcUrl ?? 'https://api.mainnet-beta.solana.com').trim();
-          if (effectiveUrl.isEmpty) {
-            throw Exception('Generic RPC URL is empty');
-          }
-          rpcEndpoint = effectiveUrl;
-          break;
-      }
-
-      final uri = Uri.parse(rpcEndpoint);
+      final uri = await _resolveSolanaRpcUri(
+        provider: provider,
+        rpcUrl: rpcUrl,
+        apiKey: apiKey,
+      );
 
       // Try a few known whale wallets until one yields transactions
       const whaleWallets = [

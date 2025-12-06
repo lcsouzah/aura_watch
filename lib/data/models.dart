@@ -1,3 +1,106 @@
+enum BlockchainApiProviderId {
+  helius,
+  quickNode,
+  alchemy,
+  ankr,
+  chainbase,
+  custom,
+}
+
+class BlockchainApiProvider {
+  final BlockchainApiProviderId id;
+  final String name;
+  final String description;
+
+  const BlockchainApiProvider({
+    required this.id,
+    required this.name,
+    required this.description,
+  });
+}
+
+const List<BlockchainApiProvider> kBlockchainApiProviders = [
+  BlockchainApiProvider(
+    id: BlockchainApiProviderId.helius,
+    name: 'Helius',
+    description:
+    'Solana-focused RPC & webhooks. Paste your Helius mainnet RPC URL.',
+  ),
+  BlockchainApiProvider(
+    id: BlockchainApiProviderId.quickNode,
+    name: 'QuickNode',
+    description:
+    'Multi-chain RPC provider. Paste your QuickNode Solana endpoint URL.',
+  ),
+  BlockchainApiProvider(
+    id: BlockchainApiProviderId.alchemy,
+    name: 'Alchemy',
+    description:
+    'Blockchain data platform. Paste your Alchemy Solana RPC URL if available.',
+  ),
+  BlockchainApiProvider(
+    id: BlockchainApiProviderId.ankr,
+    name: 'Ankr',
+    description: 'Multi-chain RPC & staking. Paste your Ankr Solana RPC URL.',
+  ),
+  BlockchainApiProvider(
+    id: BlockchainApiProviderId.chainbase,
+    name: 'Chainbase',
+    description:
+    'Blockchain data APIs. Paste your Chainbase Solana endpoint URL.',
+  ),
+  BlockchainApiProvider(
+    id: BlockchainApiProviderId.custom,
+    name: 'Custom RPC',
+    description:
+    'Any other RPC or API endpoint. Paste the full URL including key if needed.',
+  ),
+];
+
+BlockchainApiProvider providerById(BlockchainApiProviderId id) {
+  return kBlockchainApiProviders.firstWhere((p) => p.id == id);
+}
+
+class ApiSettings {
+  final BlockchainApiProviderId providerId;
+
+  /// Full RPC / API endpoint URL. For most providers this already
+  /// includes the API key or token.
+  final String rpcUrl;
+
+  const ApiSettings({
+    required this.providerId,
+    required this.rpcUrl,
+  });
+
+  ApiSettings copyWith({
+    BlockchainApiProviderId? providerId,
+    String? rpcUrl,
+  }) {
+    return ApiSettings(
+      providerId: providerId ?? this.providerId,
+      rpcUrl: rpcUrl ?? this.rpcUrl,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'providerId': providerId.name,
+    'rpcUrl': rpcUrl,
+  };
+
+  factory ApiSettings.fromJson(Map<String, dynamic> json) {
+    final providerName = json['providerId'] as String?;
+    final providerId = BlockchainApiProviderId.values.firstWhere(
+          (e) => e.name == providerName,
+      orElse: () => BlockchainApiProviderId.helius,
+    );
+    return ApiSettings(
+      providerId: providerId,
+      rpcUrl: (json['rpcUrl'] as String?) ?? '',
+    );
+  }
+}
+
 class TokenMarket {
   final String id;
   final String symbol;

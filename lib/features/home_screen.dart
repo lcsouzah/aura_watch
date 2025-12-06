@@ -8,6 +8,7 @@ import '../data/notification_service.dart';
 import '../data/solana_service.dart';
 import '../data/token_price_service.dart';
 import '../data/watchlist_repository.dart';
+import '../screens/api_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -421,7 +422,18 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: _loading ? null : _refreshAll,
               icon: const Icon(Icons.refresh),
               tooltip: 'Refresh',
-            )
+            ),
+            IconButton(
+              icon: const Icon(Icons.settings),
+              tooltip: 'API Settings',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ApiSettingsScreen(),
+                  ),
+                );
+              },
+            ),
           ],
         ),
         body: Column(
