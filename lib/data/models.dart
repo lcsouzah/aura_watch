@@ -209,6 +209,7 @@ class TokenBubbleData {
   });
 }
 
+enum WalletViewMode { list, bubbles }
 
 class ApiSettings {
   final BlockchainApiProviderId providerId;
