@@ -51,6 +51,129 @@ class SolanaService {
     // TODO: route additional Solana provider defaults through here as we add them.
     return Uri.parse(rpcEndpoint);
   }
+
+  /// Fetches SPL token balances for a single Solana address and converts
+  /// them into TokenBubbleData for the bubble map UI.
+  ///
+  /// Notes:
+  /// - Uses the currently configured Solana RPC (user SolanaApiSettings,
+  ///   then legacy ApiSettings, then defaults via _resolveSolanaRpcUri).
+  /// - For now, valueUsd is approximated as equal to the UI amount unless
+  ///   we can recognize a known stablecoin (which we treat as ~$1).
+  ///   This keeps the bubble sizes meaningful even without full price data.
+  static Future<List<TokenBubbleData>> fetchWalletTokenBubbles(
+      String address, {
+        http.Client? client,
+      }) async {
+    final trimmed = address.trim();
+    if (trimmed.isEmpty) return const [];
+
+    final httpClient = client ?? http.Client();
+    final shouldClose = client == null;
+
+    try {
+      final uri = await _resolveSolanaRpcUri();
+
+      final body = jsonEncode({
+        "jsonrpc": "2.0",
+        "id": "aura_wallet_tokens",
+        "method": "getTokenAccountsByOwner",
+        "params": [
+          trimmed,
+          {
+            "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          },
+          {
+            "encoding": "jsonParsed",
+          }
+        ],
+      });
+
+      final res = await httpClient.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      );
+      if (res.statusCode != 200) {
+        throw Exception('getTokenAccountsByOwner failed: ${res.statusCode}');
+      }
+      final payload = jsonDecode(res.body) as Map<String, dynamic>;
+      final result = payload['result'] as Map<String, dynamic>?;
+
+      final value = result?['value'] as List<dynamic>? ?? const [];
+      if (value.isEmpty) {
+        return const [];
+      }
+
+      final bubbles = <TokenBubbleData>[];
+
+      for (final entry in value) {
+        final account = (entry as Map<String, dynamic>)['account'] as Map<String, dynamic>?;
+        if (account == null) continue;
+
+        final data = account['data'] as Map<String, dynamic>?;
+        if (data == null) continue;
+
+        final parsed = data['parsed'] as Map<String, dynamic>?;
+        if (parsed == null) continue;
+
+        if (parsed['type']?.toString() != 'account') continue;
+
+        final info = parsed['info'] as Map<String, dynamic>? ?? const {};
+        final tokenAmount = info['tokenAmount'] as Map<String, dynamic>? ?? const {};
+        final mint = info['mint']?.toString() ?? '';
+        if (mint.isEmpty) continue;
+
+        final amountUi = (tokenAmount['uiAmount'] as num?)?.toDouble() ?? 0.0;
+        if (amountUi <= 0) continue;
+
+        String symbol = 'TOKEN';
+        double valueUsd = amountUi;
+
+        final stableInfo = stablecoinByMint(mint);
+        if (stableInfo != null) {
+          symbol = stableInfo.symbol.toUpperCase();
+          valueUsd = amountUi;
+        } else {
+          final maybeSymbol = tokenAmount['symbol']?.toString();
+          if (maybeSymbol != null && maybeSymbol.isNotEmpty) {
+            symbol = maybeSymbol.toUpperCase();
+          }
+        }
+
+        bubbles.add(TokenBubbleData(
+          symbol: symbol,
+          mint: mint,
+          valueUsd: valueUsd,
+          amount: amountUi,
+          logoUrl: null,
+        ));
+      }
+
+      final byMint = <String, TokenBubbleData>{};
+      for (final t in bubbles) {
+        final existing = byMint[t.mint];
+        if (existing == null) {
+          byMint[t.mint] = t;
+        } else {
+          byMint[t.mint] = TokenBubbleData(
+            symbol: existing.symbol,
+            mint: existing.mint,
+            valueUsd: existing.valueUsd + t.valueUsd,
+            amount: existing.amount + t.amount,
+            logoUrl: existing.logoUrl,
+          );
+        }
+      }
+
+      return byMint.values.toList(growable: false);
+    } finally {
+      if (shouldClose) {
+        httpClient.close();
+      }
+    }
+  }
+
   /// CoinGecko – SOL price (USD)
   static Future<String> fetchSolPrice({http.Client? client}) async {
     final httpClient = client ?? http.Client();

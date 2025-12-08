@@ -424,6 +424,13 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'Refresh',
             ),
             IconButton(
+              icon: const Icon(Icons.bubble_chart),
+              tooltip: 'Wallet bubble view',
+              onPressed: () {
+                Navigator.of(context).pushNamed('/wallet-bubbles');
+              },
+            ),
+            IconButton(
               icon: const Icon(Icons.settings_input_antenna),
               tooltip: 'Solana API / RPC Settings',
               onPressed: () {

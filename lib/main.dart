@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'data/notification_service.dart';
 import 'features/home_screen.dart';
 import 'features/multichain_screen.dart';
+import 'features/wallet_bubble_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,8 @@ class AuraWatchApp extends StatelessWidget {
       routes: {
         '/': (_) => const HomeScreen(),
         '/multi': (_) => const MultiChainScreen(),
+        '/wallet-bubbles': (_) => const WalletBubbleScreen(),
+
       },
       initialRoute: '/',
     );
