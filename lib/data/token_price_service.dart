@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'models.dart';
+
 class TokenPriceService {
   const TokenPriceService._();
 
@@ -29,6 +31,44 @@ class TokenPriceService {
         final usd = (value as Map<String, dynamic>)['usd'] as num?;
         return MapEntry(key, usd?.toDouble() ?? 0.0);
       });
+    } finally {
+      if (shouldClose) {
+        httpClient.close();
+      }
+    }
+  }
+
+  /// Search tokens on CoinGecko by name/symbol.
+  static Future<List<TokenSearchResult>> searchTokens(
+      String query, {
+        http.Client? client,
+      }) async {
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+
+    final httpClient = client ?? http.Client();
+    final shouldClose = client == null;
+
+    try {
+      final uri = Uri.parse(
+          'https://api.coingecko.com/api/v3/search?query=${Uri.encodeQueryComponent(q)}');
+      final res = await httpClient.get(uri);
+      if (res.statusCode != 200) {
+        throw Exception('Token search failed: ${res.statusCode}');
+      }
+      final decoded = jsonDecode(res.body) as Map<String, dynamic>;
+      final coins = decoded['coins'] as List<dynamic>? ?? const [];
+      return coins
+          .map((raw) {
+        final map = raw as Map<String, dynamic>;
+        return TokenSearchResult(
+          id: map['id']?.toString() ?? '',
+          name: map['name']?.toString() ?? '',
+          symbol: map['symbol']?.toString() ?? '',
+        );
+      })
+          .where((r) => r.id.isNotEmpty)
+          .toList(growable: false);
     } finally {
       if (shouldClose) {
         httpClient.close();

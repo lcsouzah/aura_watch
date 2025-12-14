@@ -5,7 +5,9 @@ import '../data/solana_service.dart';
 import '../widgets/token_bubble_map.dart';
 
 class WalletBubbleScreen extends StatefulWidget {
-  const WalletBubbleScreen({super.key});
+  final String? initialAddress;
+
+  const WalletBubbleScreen({super.key, this.initialAddress});
 
   @override
   State<WalletBubbleScreen> createState() => _WalletBubbleScreenState();
@@ -16,6 +18,16 @@ class _WalletBubbleScreenState extends State<WalletBubbleScreen> {
   bool _loading = false;
   String? _error;
   List<TokenBubbleData> _bubbles = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialAddress != null &&
+        widget.initialAddress!.trim().isNotEmpty) {
+      _addressController.text = widget.initialAddress!.trim();
+      _load();
+    }
+  }
 
   Future<void> _load() async {
     final addr = _addressController.text.trim();
@@ -119,7 +131,7 @@ class _WalletBubbleScreenState extends State<WalletBubbleScreen> {
                           const SizedBox(height: 4),
                           Text('Amount: ${token.amount}'),
                           const SizedBox(height: 4),
-                          Text('Value (approx): ${token.valueUsd}'),
+                          Text('Value (approx): \$${token.valueUsd.toStringAsFixed(2)}'),
                         ],
                       ),
                     ),

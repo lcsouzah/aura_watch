@@ -5,9 +5,11 @@ import 'package:intl/intl.dart';
 
 import '../data/models.dart';
 import '../data/notification_service.dart';
+import '../data/address_watchlist_repository.dart';
 import '../data/solana_service.dart';
 import '../data/token_price_service.dart';
 import '../data/watchlist_repository.dart';
+import 'wallet_bubble_screen.dart';
 import '../screens/solana_api_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -34,6 +36,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, double> _latestWatchPrices = const {};
   final Map<String, bool> _lastThresholdState = {};
   final Set<String> _processedWhaleEventIds = {};
+  AddressWatchlistRepository? _addressWatchRepo;
+  List<WatchedAddress> _addressWatchlist = const [];
+  bool _addressWatchLoading = true;
+  String? _addressWatchError;
 
   Future<void> _refreshAll() async {
     if (!mounted) return;
@@ -131,6 +137,24 @@ class _HomeScreenState extends State<HomeScreen> {
       _watchlist = tokens;
       _watchlistLoading = false;
     });
+    try {
+      final addrRepo = await AddressWatchlistRepository.load();
+      final addrList = addrRepo.loadAddresses();
+      if (mounted) {
+        setState(() {
+          _addressWatchRepo = addrRepo;
+          _addressWatchlist = addrList;
+          _addressWatchLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _addressWatchError = e.toString();
+          _addressWatchLoading = false;
+        });
+      }
+    }
     await _refreshAll();
     if (!mounted) return;
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
@@ -209,6 +233,16 @@ class _HomeScreenState extends State<HomeScreen> {
     await _refreshWatchlistSection();
   }
 
+  Future<void> _updateAddressWatchlist(List<WatchedAddress> list) async {
+    final repo = _addressWatchRepo;
+    if (repo == null) return;
+    if (!mounted) return;
+    setState(() {
+      _addressWatchlist = list;
+    });
+    await repo.saveAddresses(list);
+  }
+
   Future<void> _removeToken(WatchedToken token) async {
     final updated = _watchlist.where((t) => t != token).toList();
     await _updateWatchlist(updated);
@@ -236,6 +270,138 @@ class _HomeScreenState extends State<HomeScreen> {
       SnackBar(content: Text('${token.label} added to watchlist')),
     );
   }
+  Future<void> _searchAndAddToken() async {
+    final queryController = TextEditingController();
+    List<TokenSearchResult> results = const [];
+    TokenSearchResult? selected;
+
+    final result = await showDialog<TokenSearchResult>(
+      context: context,
+      builder: (ctx) {
+        bool loading = false;
+        String? error;
+
+        Future<void> doSearch(void Function(void Function()) setState) async {
+          final q = queryController.text.trim();
+          if (q.isEmpty) return;
+          setState(() {
+            loading = true;
+            error = null;
+          });
+          try {
+            final resp = await TokenPriceService.searchTokens(q);
+            setState(() {
+              results = resp;
+            });
+          } catch (e) {
+            setState(() {
+              error = e.toString();
+              results = const [];
+            });
+          } finally {
+            setState(() {
+              loading = false;
+            });
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            return AlertDialog(
+              title: const Text('Search token'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: queryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Name or symbol',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => doSearch(setState),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: loading ? null : () => doSearch(setState),
+                      child: loading
+                          ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                          : const Text('Search'),
+                    ),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      error!,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 200,
+                    child: results.isEmpty
+                        ? const Center(child: Text('No results'))
+                        : ListView.separated(
+                      itemCount: results.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, index) {
+                        final r = results[index];
+                        return ListTile(
+                          title: Text('${r.name} (${r.symbol.toUpperCase()})'),
+                          subtitle: Text(r.id),
+                          onTap: () {
+                            selected = r;
+                            Navigator.of(ctx).pop(selected);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
+    selected = result;
+
+    final normalized = _normalizedId(selected!.id);
+    final exists = _watchlist.any((t) => _normalizedId(t.id) == normalized);
+    if (exists) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Token already in watchlist')),
+      );
+      return;
+    }
+
+    final newToken = WatchedToken(
+      id: selected!.id,
+      label: '${selected!.name} (${selected!.symbol.toUpperCase()})',
+      thresholdUsd: 1.0,
+      alertAbove: true,
+    );
+    await _updateWatchlist([..._watchlist, newToken]);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${newToken.label} added to watchlist')),
+    );
+  }
+
 
   Future<void> _editToken(WatchedToken token) async {
     final updated = await _showTokenDialog(existing: token);
@@ -377,6 +543,114 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
+
+  Future<void> _addAddress() async {
+    final addr = await _showAddressDialog();
+    if (addr == null) return;
+
+    final normalized = addr.address.trim();
+    final exists = _addressWatchlist
+        .any((a) => a.chain == addr.chain && a.address.trim() == normalized);
+    if (exists) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Address already in watchlist')),
+      );
+      return;
+    }
+
+    await _updateAddressWatchlist([..._addressWatchlist, addr]);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${addr.label} added to address watchlist')),
+    );
+  }
+
+  Future<void> _removeAddress(WatchedAddress addr) async {
+    final updated = _addressWatchlist.where((a) => a != addr).toList();
+    await _updateAddressWatchlist(updated);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${addr.label} removed from address watchlist')),
+    );
+  }
+
+  Future<WatchedAddress?> _showAddressDialog({WatchedAddress? existing}) {
+    final addressController =
+    TextEditingController(text: existing?.address ?? '');
+    final labelController =
+    TextEditingController(text: existing?.label ?? existing?.address ?? '');
+    String chain = existing?.chain ?? 'solana';
+
+    return showDialog<WatchedAddress>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(existing == null ? 'Add address' : 'Edit address'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: addressController,
+                decoration: const InputDecoration(
+                  labelText: 'Address',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: labelController,
+                decoration: const InputDecoration(
+                  labelText: 'Label',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: chain,
+                decoration: const InputDecoration(
+                  labelText: 'Chain',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'solana', child: Text('Solana')),
+                  DropdownMenuItem(value: 'ethereum', child: Text('Ethereum')),
+                  DropdownMenuItem(value: 'bitcoin', child: Text('Bitcoin')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  chain = value;
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final addr = addressController.text.trim();
+                if (addr.isEmpty) return;
+                final label =
+                labelController.text.trim().isEmpty ? addr : labelController.text.trim();
+                Navigator.of(ctx).pop(
+                  WatchedAddress(
+                    address: addr,
+                    label: label,
+                    chain: chain,
+                  ),
+                );
+              },
+              child: Text(existing == null ? 'Add' : 'Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   Widget _buildWatchTile(WatchedToken token) {
     final price = _latestWatchPrices[_normalizedId(token.id)];
@@ -533,13 +807,127 @@ class _HomeScreenState extends State<HomeScreen> {
     children.add(
       Align(
         alignment: Alignment.centerLeft,
-        child: OutlinedButton.icon(
-          onPressed: _addToken,
-          icon: const Icon(Icons.add_alert_outlined),
-          label: const Text('Add token'),
+        child: Wrap(
+          spacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _addToken,
+              icon: const Icon(Icons.add_alert_outlined),
+              label: const Text('Add token (manual)'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _searchAndAddToken,
+              icon: const Icon(Icons.search),
+              label: const Text('Search token'),
+            ),
+          ],
         ),
       ),
     );
+
+    children.add(const SizedBox(height: 24));
+    children.add(
+      Text(
+        'Address watchlist',
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+    );
+    children.add(const SizedBox(height: 8));
+
+    if (_addressWatchLoading) {
+      children.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    } else {
+      if (_addressWatchError != null) {
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Address watchlist error: $_addressWatchError',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        );
+      }
+      if (_addressWatchlist.isEmpty) {
+        children.add(
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('No watched addresses yet.'),
+          ),
+        );
+      } else {
+        children.add(
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _addressWatchlist.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 4),
+            itemBuilder: (context, index) {
+              final addr = _addressWatchlist[index];
+              final isSol = addr.chain.toLowerCase() == 'solana';
+              return Card(
+                child: ListTile(
+                  title: Text(addr.label),
+                  subtitle: Text(
+                    '${addr.chain.toUpperCase()} • ${addr.address}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isSol)
+                        IconButton(
+                          icon: const Icon(Icons.bubble_chart),
+                          tooltip: 'View wallet bubbles',
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => WalletBubbleScreen(
+                                  initialAddress: addr.address,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () => _removeAddress(addr),
+                      ),
+                    ],
+                  ),
+                  onLongPress: () async {
+                    final updated = await _showAddressDialog(existing: addr);
+                    if (updated == null) return;
+                    final list = [..._addressWatchlist];
+                    final idx = list.indexOf(addr);
+                    if (idx == -1) return;
+                    list[idx] = updated;
+                    await _updateAddressWatchlist(list);
+                  },
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      children.add(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _addAddress,
+            icon: const Icon(Icons.add_location_alt_outlined),
+            label: const Text('Add address'),
+          ),
+        ),
+      );
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: children,
@@ -619,10 +1007,31 @@ class _HomeScreenState extends State<HomeScreen> {
         ? '${w.amount!.toStringAsFixed(2)} ${w.tokenSymbol}'
         : w.tokenSymbol;
     final timeText = _formatRelativeTime(w.ts);
+    Widget trailing = Text(timeText);
+    if (w.chain.toLowerCase() == 'solana' && (w.address ?? '').isNotEmpty) {
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(timeText),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.bubble_chart),
+            tooltip: 'View wallet bubbles',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => WalletBubbleScreen(initialAddress: w.address),
+                ),
+              );
+            },
+          ),
+        ],
+      );
+    }
     return ListTile(
       title: Text('${w.tokenSymbol} ${w.movementType.toUpperCase()}'),
       subtitle: Text('${w.chain.toUpperCase()} • ${w.desc} • $amountText'),
-      trailing: Text(timeText),
+      trailing: trailing,
     );
   }
 

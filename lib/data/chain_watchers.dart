@@ -134,6 +134,7 @@ class EthereumWatcher implements ChainWatcher {
               desc: 'Amount: ${eth.toStringAsFixed(2)} ETH',
               ts: ts,
               amount: eth,
+              address: null,
             ));
             if (whales.length >= limit) break;
           }
@@ -215,6 +216,7 @@ class BitcoinWatcher implements ChainWatcher {
             desc: 'Amount: ${btc.toStringAsFixed(2)} BTC',
             ts: ts,
             amount: btc,
+            address: null,
           ));
           if (whales.length >= limit) break;
         }

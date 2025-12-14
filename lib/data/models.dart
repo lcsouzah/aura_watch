@@ -278,6 +278,9 @@ class WhaleTx {
   final double? amount; // numeric amount in native units (e.g., ETH, BTC, SOL)
   final double? usdValue;
 
+  /// Optional primary address for this whale event (e.g., whale wallet).
+  final String? address;
+
   const WhaleTx({
     required this.id,
     required this.shortHash,
@@ -288,6 +291,45 @@ class WhaleTx {
     required this.ts,
     this.amount,
     this.usdValue,
+    this.address,
+  });
+
+  WhaleTx copyWith({
+    String? id,
+    String? shortHash,
+    String? chain,
+    String? tokenSymbol,
+    String? movementType,
+    String? desc,
+    DateTime? ts,
+    double? amount,
+    double? usdValue,
+    String? address,
+  }) {
+    return WhaleTx(
+      id: id ?? this.id,
+      shortHash: shortHash ?? this.shortHash,
+      chain: chain ?? this.chain,
+      tokenSymbol: tokenSymbol ?? this.tokenSymbol,
+      movementType: movementType ?? this.movementType,
+      desc: desc ?? this.desc,
+      ts: ts ?? this.ts,
+      amount: amount ?? this.amount,
+      usdValue: usdValue ?? this.usdValue,
+      address: address ?? this.address,
+    );
+  }
+}
+
+class TokenSearchResult {
+  final String id; // CoinGecko token id
+  final String name;
+  final String symbol;
+
+  const TokenSearchResult({
+    required this.id,
+    required this.name,
+    required this.symbol,
   });
 }
 
@@ -335,6 +377,44 @@ class WatchedToken {
       'alertAbove': alertAbove,
     };
   }
+}
+
+class WatchedAddress {
+  final String address;
+  final String label;
+  final String chain; // 'solana', 'ethereum', 'bitcoin', etc.
+
+  const WatchedAddress({
+    required this.address,
+    required this.label,
+    required this.chain,
+  });
+
+  WatchedAddress copyWith({
+    String? address,
+    String? label,
+    String? chain,
+  }) {
+    return WatchedAddress(
+      address: address ?? this.address,
+      label: label ?? this.label,
+      chain: chain ?? this.chain,
+    );
+  }
+
+  factory WatchedAddress.fromJson(Map<String, dynamic> json) {
+    return WatchedAddress(
+      address: json['address']?.toString() ?? '',
+      label: json['label']?.toString() ?? (json['address']?.toString() ?? ''),
+      chain: json['chain']?.toString() ?? 'solana',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'address': address,
+    'label': label,
+    'chain': chain,
+  };
 }
 
 class StablecoinInfo {

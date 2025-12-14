@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../services/api_settings_repository.dart';
 import '../services/solana_api_settings_repository.dart';
 import 'models.dart';
+import 'token_price_service.dart';
 
 enum SolanaRpcProvider {
   helius,
@@ -52,21 +53,19 @@ class SolanaService {
     return Uri.parse(rpcEndpoint);
   }
 
-  /// Fetches SPL token balances for a single Solana address and converts
-  /// them into TokenBubbleData for the bubble map UI.
+  /// Fetch SOL + SPL token balances for a wallet and map them into
+  /// TokenBubbleData using a mint → USD price map.
   ///
-  /// Notes:
-  /// - Uses the currently configured Solana RPC (user SolanaApiSettings,
-  ///   then legacy ApiSettings, then defaults via _resolveSolanaRpcUri).
-  /// - For now, valueUsd is approximated as equal to the UI amount unless
-  ///   we can recognize a known stablecoin (which we treat as ~$1).
-  ///   This keeps the bubble sizes meaningful even without full price data.
+  /// Rules:
+  /// - Include native SOL as a bubble (symbol 'SOL', mint 'SOL').
+  /// - Use CoinGecko prices for SOL + supported stablecoins.
+  /// - Unknown tokens fallback to valueUsd ≈ amount.
   static Future<List<TokenBubbleData>> fetchWalletTokenBubbles(
       String address, {
         http.Client? client,
       }) async {
-    final trimmed = address.trim();
-    if (trimmed.isEmpty) return const [];
+    final owner = address.trim();
+    if (owner.isEmpty) return const [];
 
     final httpClient = client ?? http.Client();
     final shouldClose = client == null;
@@ -74,49 +73,61 @@ class SolanaService {
     try {
       final uri = await _resolveSolanaRpcUri();
 
-      final body = jsonEncode({
+      // Native SOL balance
+      final solReq = jsonEncode({
         "jsonrpc": "2.0",
-        "id": "aura_wallet_tokens",
+        "id": "sol_balance",
+        "method": "getBalance",
+        "params": [owner],
+      });
+      final solRes = await httpClient.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: solReq,
+      );
+      if (solRes.statusCode != 200) {
+        throw Exception('getBalance failed: ${solRes.statusCode}');
+      }
+      final solPayload = jsonDecode(solRes.body) as Map<String, dynamic>;
+      final solResult = solPayload['result'] as Map<String, dynamic>?;
+      final lamports = (solResult?['value'] as num?)?.toInt() ?? 0;
+      final solAmount = lamports / 1e9;
+
+      // SPL token accounts
+      final tokenReq = jsonEncode({
+        "jsonrpc": "2.0",
+        "id": "wallet_tokens",
         "method": "getTokenAccountsByOwner",
         "params": [
-          trimmed,
-          {
-            "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-          },
-          {
-            "encoding": "jsonParsed",
-          }
+          owner,
+          {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+          {"encoding": "jsonParsed"}
         ],
       });
 
-      final res = await httpClient.post(
+      final tokenRes = await httpClient.post(
         uri,
         headers: {'Content-Type': 'application/json'},
-        body: body,
+        body: tokenReq,
       );
-      if (res.statusCode != 200) {
-        throw Exception('getTokenAccountsByOwner failed: ${res.statusCode}');
+      if (tokenRes.statusCode != 200) {
+        throw Exception('getTokenAccountsByOwner failed: ${tokenRes.statusCode}');
       }
-      final payload = jsonDecode(res.body) as Map<String, dynamic>;
-      final result = payload['result'] as Map<String, dynamic>?;
+      final tokenPayload = jsonDecode(tokenRes.body) as Map<String, dynamic>;
+      final tokenResult = tokenPayload['result'] as Map<String, dynamic>?;
+      final value = tokenResult?['value'] as List<dynamic>? ?? const [];
 
-      final value = result?['value'] as List<dynamic>? ?? const [];
-      if (value.isEmpty) {
-        return const [];
-      }
+      final Map<String, double> mintToAmount = {};
+      final Map<String, String> mintToSymbol = {};
 
-      final bubbles = <TokenBubbleData>[];
-
-      for (final entry in value) {
-        final account = (entry as Map<String, dynamic>)['account'] as Map<String, dynamic>?;
+      for (final raw in value) {
+        final entry = raw as Map<String, dynamic>;
+        final account = entry['account'] as Map<String, dynamic>?;
         if (account == null) continue;
-
         final data = account['data'] as Map<String, dynamic>?;
         if (data == null) continue;
-
         final parsed = data['parsed'] as Map<String, dynamic>?;
         if (parsed == null) continue;
-
         if (parsed['type']?.toString() != 'account') continue;
 
         final info = parsed['info'] as Map<String, dynamic>? ?? const {};
@@ -124,49 +135,60 @@ class SolanaService {
         final mint = info['mint']?.toString() ?? '';
         if (mint.isEmpty) continue;
 
-        final amountUi = (tokenAmount['uiAmount'] as num?)?.toDouble() ?? 0.0;
-        if (amountUi <= 0) continue;
+        final uiAmount = (tokenAmount['uiAmount'] as num?)?.toDouble() ?? 0.0;
+        if (uiAmount <= 0) continue;
 
-        String symbol = 'TOKEN';
-        double valueUsd = amountUi;
+        mintToAmount[mint] = (mintToAmount[mint] ?? 0) + uiAmount;
+        final maybeSymbol = tokenAmount['symbol']?.toString();
+        if (maybeSymbol != null && maybeSymbol.isNotEmpty) {
+          mintToSymbol[mint] = maybeSymbol.toUpperCase();
+        }
+      }
 
-        final stableInfo = stablecoinByMint(mint);
-        if (stableInfo != null) {
-          symbol = stableInfo.symbol.toUpperCase();
-          valueUsd = amountUi;
-        } else {
-          final maybeSymbol = tokenAmount['symbol']?.toString();
-          if (maybeSymbol != null && maybeSymbol.isNotEmpty) {
-            symbol = maybeSymbol.toUpperCase();
-          }
+      // Build CoinGecko id list for SOL + supported stablecoins.
+      final Set<String> ids = {'solana'};
+      for (final mint in mintToAmount.keys) {
+        final stable = stablecoinByMint(mint);
+        if (stable != null) {
+          ids.add(stable.coingeckoId.toLowerCase());
+        }
+      }
+      final priceMap = await TokenPriceService.fetchUsdPrices(ids.toList());
+      final solPrice = priceMap['solana'] ?? 0.0;
+
+      final List<TokenBubbleData> bubbles = [];
+
+      if (solAmount > 0 && solPrice > 0) {
+        bubbles.add(TokenBubbleData(
+          symbol: 'SOL',
+          mint: 'SOL',
+          valueUsd: solAmount * solPrice,
+          amount: solAmount,
+          logoUrl: null,
+        ));
+      }
+
+      mintToAmount.forEach((mint, amount) {
+        final stable = stablecoinByMint(mint);
+        String symbol = mintToSymbol[mint] ?? 'TOKEN';
+        double valueUsd = amount;
+
+        if (stable != null) {
+          symbol = stable.symbol.toUpperCase();
+          final price = priceMap[stable.coingeckoId.toLowerCase()] ?? 1.0;
+          valueUsd = amount * price;
         }
 
         bubbles.add(TokenBubbleData(
           symbol: symbol,
           mint: mint,
           valueUsd: valueUsd,
-          amount: amountUi,
+          amount: amount,
           logoUrl: null,
         ));
-      }
+      });
 
-      final byMint = <String, TokenBubbleData>{};
-      for (final t in bubbles) {
-        final existing = byMint[t.mint];
-        if (existing == null) {
-          byMint[t.mint] = t;
-        } else {
-          byMint[t.mint] = TokenBubbleData(
-            symbol: existing.symbol,
-            mint: existing.mint,
-            valueUsd: existing.valueUsd + t.valueUsd,
-            amount: existing.amount + t.amount,
-            logoUrl: existing.logoUrl,
-          );
-        }
-      }
-
-      return byMint.values.toList(growable: false);
+      return bubbles;
     } finally {
       if (shouldClose) {
         httpClient.close();
@@ -390,6 +412,7 @@ class SolanaService {
                   '$src → $dst: ${sol.toStringAsFixed(2)} SOL (${address.substring(0, 4)}...)',
                   ts: ts,
                   amount: sol,
+                  address: address,
                 ));
               }
             }
@@ -555,6 +578,7 @@ class SolanaService {
         ts: timestamp,
         amount: absChange,
         usdValue: usdValue,
+        address: owner,
       ));
     }
     return whaleEvents;
